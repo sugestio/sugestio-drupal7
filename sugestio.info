@@ -1,0 +1,6 @@
+name = Sugestio
+description = Get recommendations based on five-star voting through Sugestio recommendation service.
+core = 7.x
+php = 5.2
+dependencies[] = fivestar
+dependencies[] = libraries

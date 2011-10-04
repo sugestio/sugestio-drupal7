@@ -1,0 +1,728 @@
+<?php
+// $Id$
+
+/**
+ * @file
+ * Provides a connection to the Sugestio recommendation service.
+ *
+ * When enabled, the Sugestio module submits five-star votes to the 
+ * recommendation service. Users get personalized recommendations 
+ * based on their rating behaviour. Each node gets a list of nodes 
+ * that are similar.
+ */
+
+/**
+ * Implementation of hook_menu.
+ */
+function sugestio_menu() {
+  $items = array();
+
+  $items['admin/config/search/sugestio'] = array(
+      'title' => t('Sugestio settings'),
+      'description' => t('Configure the Sugestio Recommender system settings.'),
+      'page callback' => 'drupal_get_form',
+      'page arguments' => array('sugestio_admin_settings'),
+      'access arguments' => array('administer sugestio'),
+      'type' => MENU_NORMAL_ITEM,
+  );
+  return $items;
+}
+
+/**
+ * Implementation of hook_perm
+ */
+function sugestio_permission() {
+  return array(
+    'administer sugestio' => array(
+      'title' => t('Administer Sugestio'),
+      'description' => t('Perform administration tasks for Sugestio'),
+    ),
+  );
+}
+/**
+ * Implementation of hook_settings.
+ */
+function sugestio_admin_settings() {
+  $form = array();
+
+  $form['sugestio_account'] = array(
+    '#type' => 'textfield',
+    '#size' => 15,
+    '#title' => t('Account name'),
+    '#description' => t('Your Sugestio account name.'),
+    '#default_value' => variable_get('sugestio_account', 'sandbox'),
+  );
+
+  $form['sugestio_key'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Secret key'),
+    '#size' => 15,
+    '#default_value' => variable_get('sugestio_key', 'demo'),
+    '#description' => t('Your Sugestio secret key. This key will be used to authenticate communication with the external Sugestio recommendation engine.'),
+  );
+
+  $form['sugestio_url'] = array(
+    '#type' => 'textfield',
+    '#default_value' => variable_get('sugestio_url', 'http://api.sugestio.com'),
+    '#title' => t('Sugestio URL'),
+    '#description' => t('The URL of the external Sugestio recommendation engine. Remove any trailing /.'),
+  );
+
+  $form['sugestio_number_recs'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Number of recommended items'),
+    '#size' => 15,
+    '#description' => t('The number of recommended items that should be fetched. This affects both the number of recommended items that will be fetched from the external Sugestio recommendation engine as the number of items that will be shown in the standard Sugestio Recommended Items block. Enter a value from the interval [1,100].'),
+    '#default_value' => variable_get('sugestio_number_recs', 5),
+  );
+
+  $form['sugestio_expire'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Cache expire time'),
+    '#size' => 15,
+    '#default_value' => variable_get('sugestio_expire', 1),
+    '#description' => t('The maximum time (in hours) the recommendations can be stored in the cache. After this period the recommendations will be refetched from the external Sugestio recommendation egine. Enter a value from the interval [1,48].'),
+  );
+
+  $form['sugestio_rec_cache'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Use recommendation cache'),
+    '#default_value' => variable_get('sugestio_rec_cache', 1),
+    '#description' => t('Enables the the recommendations cache. Recommendations will be fetched from the local cache before calling the external Sugestio recommendation engine. Disabling this is only recommended for testing purposes.'),
+  );
+
+  $form['sugestio_realtime_hook'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Send realtime hook events'),
+    '#default_value' => variable_get('sugestio_realtime_hook', 1),
+    '#description' => t('Allows the hook events to be sent in realtime to the external Sugestio recommendation engine. A hook event is triggered when a new user, item or vote is added to the system. If disabled, these events will be stored in (non-expiring) cache to be performed when the Drupal cron is executed.'),
+  );
+
+  $form['sugestio_clicktracking'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Enable click tracking'),
+    '#default_value' => variable_get('sugestio_clicktracking', 1),
+    '#description' => t('If click tracking is enabled, javascript code will be inserted into the generated recommended items links. When clicked, client side calls will be made in the background to the external Sugestio recommendation engine to report this click. By gathering this information the external Sugestio recommendation engine can provide more extensive and relevant statistics about the generated recommendations.'),
+  );
+  
+  $form['sugestio_anonymize'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Anonymize data'),
+    '#default_value' => variable_get('sugestio_anonymize', 1),
+    '#description' => t('Use a salted hash of the user id and node id instead of the actual values to protect the privacy of the user.'),
+  );
+  
+  $form['sugestio_salt'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Salt'),
+    '#size' => 15,
+    '#default_value' => variable_get('sugestio_salt', 'tiU0t9uml5Ciunl'),
+    '#description' => t('If you enable the anonymized data option above, this value will be used to create salted hashes. You should change it from the default and store a copy of the new value in a safe place!'),
+  );
+
+  return system_settings_form($form);
+}
+
+/**
+ * Implementaion of hook_validate().
+ */
+function sugestio_admin_settings_validate($form, &$form_state) {
+  //Number of items between 1 and 100.
+  $num = $form_state['values']['sugestio_number_recs'];
+  if (!is_numeric($num)) {
+    form_set_error('sugestio_number_recs', t('You must enter an integer value.'));
+  }
+  elseif ($num < 1 || $num > 100) {
+    form_set_error('sugestio_number_recs', t('You must enter an integer value in the interval [1,100].'));
+  }
+
+  //Secret key maximum length.
+  $key = $form_state['values']['sugestio_key'];
+  if (drupal_strlen($key) > 50) {
+    form_set_error('sugestio_key', t('Your secret key is too long.'));
+  }
+
+  //No empty account name.
+  $account = $form_state['values']['sugestio_account'];
+  if ($account == '') {
+    form_set_error('sugestio_account', t('Account name can\'t be empty.'));
+  }
+  //Maximum length account name.
+  elseif (drupal_strlen($account) > 50) {
+    form_set_error('sugestio_account', t('Your account name is too long.'));
+  }
+
+  //Expire time numeric and between 1 and 48
+  $expire = $form_state['values']['sugestio_expire'];
+  if (!is_numeric($expire) || $expire < 0 || $expire > 48) {
+    form_set_error('sugestio_expire', t('The cache expire time should be between 1 and 48.'));
+  }
+}
+
+/**
+ * Implements hook_info()
+ */
+function sugestio_block_info() {
+  $blocks[0]['info'] = t('Sugestio: Personal recommendations');
+  $blocks[0]['cache'] = DRUPAL_NO_CACHE;
+  $blocks[1]['info'] = t('Sugestio: Similar items');
+  $blocks[1]['cache'] = DRUPAL_NO_CACHE;
+  return $blocks;
+}
+
+/**
+ * Implements hook_block_view()
+ *
+ * @param delta
+ *   Allows to specify whether the personal recommendations for a user
+ *   (delta=0) should be shown or similar sheets (delta=1).
+ */
+function sugestio_block_view($delta=0) {
+  switch ($delta) {
+    case 0:
+      //Shows personal user recommendations for the current user.
+      global $user;
+      $block['subject'] = t('Personal recommendations');
+      $block['content'] = sugestio_build_content(sugestio_get_user_recommendations($user->uid), 'RECOMMENDATION');
+      return $block;
+      break;
+
+    case 1:
+      //Shows similar items for the current node.
+      $nid = -1;
+      if (arg(0) == 'node' && is_numeric(arg(1))) {
+        $nid = arg(1);
+      }
+
+      $block['subject'] = t('Similar items');
+      $block['content'] = sugestio_build_content(sugestio_get_similar_items($nid), 'SIMILAR');
+      return $block;
+      break;
+  }
+}
+
+/**
+ * Retrieves the recommendations for the given user.
+ *
+ * They will be fetched from cache if available and
+ * allowed by the settings. Otherwise the results
+ * will come directly from the external Sugestio engine.
+ *
+ * @param uid
+ *   The id of the user.
+ *
+ * @return
+ *   An associative array containing the recommendations.
+ *   [['itemid' => 'ID_OF_FETCHED_ITEM_1'],['itemid' => 'ID_OF_FETCHED_ITEM_2'],['itemid' => 'ID_OF_FETCHED_ITEM_3'],...]
+ */
+function sugestio_get_user_recommendations($uid) {
+  $recommendations = sugestio_fetch_data($uid, 'user');
+  return $recommendations;
+}
+
+/**
+ * Retrieves the similar items.
+ *
+ * They will be fetched from cache if available and
+ * allowed by the settings. Otherwise the results
+ * will come directly from the external Sugestio engine.
+ *
+ * @param $itemid
+ *   The id of the item.
+ *
+ * @return
+ *   An associative array containing the similar items.
+ *   [['itemid' => 'ID_OF_FETCHED_ITEM_1'],['itemid' => 'ID_OF_FETCHED_ITEM_2'],['itemid' => 'ID_OF_FETCHED_ITEM_3'],...]
+ */
+function sugestio_get_similar_items($itemid) {
+  $similar = sugestio_fetch_data($itemid, 'item');
+  return $similar;
+}
+
+/**
+ * Fetches data from the external Sugestio recommendation engine or
+ * from cache if available and allowed by the settings.
+ *
+ * Data can be both recommended items for a given user and similar
+ * items for a given item.
+ *
+ * @param id
+ *   The id of the user or item for which the recommended or similar
+ *   items must be fetched.
+ *
+ * @param category
+ *   The category of the data that should be fetched. This can be 'user' if
+ *   user recommendations are required or 'item' if the similar items must be fetched.
+ *
+ * @return
+ *   An associative array structured as follows
+ *   [['itemid' => 'ID_OF_FETCHED_ITEM_1'],['itemid' => 'ID_OF_FETCHED_ITEM_2'],['itemid' => 'ID_OF_FETCHED_ITEM_3'],...]
+ */
+function sugestio_fetch_data($id, $category) {
+  $data = array();
+  if (empty($id)) {
+    return $data;
+  }
+
+  //Fetches data from cache if allowed by the settings.
+  if (variable_get('sugestio_rec_cache', 1) == 1) {
+    $cache = cache_get($category . $id, 'cache_sugestio');
+    if (!empty($cache->data)) {
+      $data = $cache->data;
+    }
+  }
+  //Fetches data from the external Sugestio recommendation engine.
+  if (empty($data)) {
+    $client = sugestio_get_client();
+    try {
+      //For user recommendations.
+      if ($category == 'user') {
+        $recs = $client->getRecommendations($id);
+      }
+      //For item similarities (recommendations).
+      elseif ($category == 'item') {
+        $recs = $client->getSimilarItems($id);
+      }
+      if (!empty($recs)) {
+       
+        $number_items = variable_get('sugestio_number_recs', 5);
+        $count = 0;
+        foreach ($recs as $rec) {
+          if ($count >= $number_items) {
+            break;
+          }
+          
+          if (!empty($rec['itemid'])) {
+            $add = TRUE;
+            
+            if (empty($rec['item']))
+              $rec['item'] = array();
+            
+            if (empty($rec['item']['title']) || empty($rec['item']['permalink'])) {
+              $node = node_load($rec['itemid'], NULL, FALSE);
+              
+              if (is_object($node)) {
+                $rec['item']['title'] = $node->title;
+                $rec['item']['permalink'] = $node->path;
+              }
+              else {
+                $add = FALSE;
+              }
+            }
+              
+            if ($add) {            
+              $data[] = $rec;
+              $count++;
+            }
+          
+          }
+        }
+        //Caches the result for quicker access next time.
+        cache_set($category . $id, $data, 'cache_sugestio', mktime(variable_get('sugestio_expire', '24')));
+      }
+      
+    } catch (Exception $e) {
+      //sugestio_error($e);
+      // error 404 means there are no recommendations for this user, or no similar items
+      // just return an empty array
+      return array();
+    }
+  }
+
+  return $data;
+}
+
+/**
+ * Implementation of hook_user_insert().
+ */
+function sugestio_user_insert(&$edit, &$account, $category = NULL) {
+  sugestio_hooks('insert', &$account, 'user');
+}
+
+/**
+ * Implementation of hook_user_update().
+ */
+function sugestio_user_update(&$edit, &$account, $category = NULL) {
+  sugestio_hooks('update', &$account, 'user');
+}
+
+/**
+ * Implementation of hook_node_insert().
+ */
+function sugestio_node_insert($node) {
+  sugestio_hooks('insert', &$node, 'node');
+}
+
+/**
+ * Implementation of hook_node_update().
+ */
+function sugestio_node_update($node) {
+  sugestio_hooks('insert', &$node, 'node');
+}
+
+/**
+ * Implementation of hook_votingapi_insert().
+ */
+function sugestio_votingapi_insert($vote) {
+  sugestio_hooks('insert', $vote, 'vote');
+}
+
+/**
+ * Implementation of hook_votingapi_update().
+ */
+function sugestio_votingapi_update($vote, $new_value) {
+  sugestio_hooks('update', $new_value, 'vote');
+}
+
+/**
+ * Implementation of hook_votingapi_delete().
+ */
+function sugestio_votingapi_delete($vote) {
+  // TODO
+}
+
+/**
+ * Collects all the hooks that this module catches and
+ * passes them on to the external Sugestio recommendation egine.
+ *
+ * Depending on the settings this will be done in realtime,
+ * or cached to be executed when cron is run.
+ *
+ * @param op
+ *   The operation linked with the hook, for example 'insert' or 'update'
+ *
+ * @param data
+ *   The data that comes with the hook. For example node, account or
+ *   vote information.
+ *
+ * @param hook
+ *   A one word discription of the hook. This can be 'user', 'node' or 'vote'.
+ */
+function sugestio_hooks($op, $data, $hook) {
+  if (variable_get('sugestio_realtime_hook', 1) == 1) {
+    try {
+      switch ($hook) {
+        case 'user':
+          $res = sugestio_user_execute($op, $data);
+          break;
+        case 'node':
+          $res = sugestio_node_execute($op, $data);
+          break;
+        case 'vote':
+          $res = sugestio_vote_execute($op, $data);
+          break;
+      }
+      if ($res != 202) {
+        throw new Exception("Error $hook operation $op. Response code: $res");
+      }
+      //All went well. No caching of the call needed, so we return.      
+      return;
+    } catch (Exception $e) {
+      sugestio_error($e);
+      //If the execution fails, the call will be saved in cache.
+    }
+  }
+
+  //Adds call to the Sugestio call cache.
+  $arr = array('data' => array('op' => $op, 'data' => $data), 'event' => $hook);
+  drupal_write_record('cron_sugestio_calls', $arr);
+}
+
+/**
+ * Sends the user operation triggered by the hook to
+ * the external Sugestio recommendation engine.
+ *
+ * This method should NOT be called directly. All hook events
+ * must pass through sugestio_hooks() to ensure correct cache
+ * behaviour.
+ *
+ * @param op
+ *   The operation linked with the hook.
+ *
+ * @param account
+ *   The account object that identifies the user that triggered
+ *   the hook.
+ */
+function sugestio_user_execute($op, $account) {
+  switch ($op) {
+    case 'insert':
+    case 'update':
+      
+      /* 
+       * Uncomment and complete the code below to submit user metadata
+       * See http://www.sugestio.com/documentation for information on 
+       * what data you can send
+       */    
+    
+      // $client = sugestio_get_client();
+      // $u = new SugestioUser(sugestio_anonymize($account->uid));    
+      // $u->location_latlong = '';
+      // $u->gender = '';
+      // $u->birthday = '';
+      // return $client->addUser($u);    
+
+      break;
+  }
+}
+
+/**
+ * Sends the node operation triggered by the hook to
+ * the Sugestio recommendation engine.
+ *
+ * This method should NOT be called directly. All hook events
+ * must pass through sugestio_hooks() to ensure correct cache
+ * behaviour.
+ *
+ * @param op
+ *   The operation linked with the hook.
+ *
+ * @param node
+ *   The node object that triggered the hook.
+ */
+function sugestio_node_execute($op, $node) {
+  switch ($op) {
+    case 'insert':
+    case 'update':      
+      
+      $client = sugestio_get_client();      
+      $sugestio_item = new SugestioItem(sugestio_anonymize($node->nid));      
+
+      // submitting a title and permalink avoids additional node_load operations 
+      // when visualizing recommendations       
+      $sugestio_item->title = $node->title;      
+      // use the alias as the permalink if one is set
+      if (!empty($node->path))
+        $path = $node->path;
+      else
+        $path = 'node/' . $node->nid;
+      
+      $sugestio_item->permalink = url($path, array('absolute' => TRUE));
+
+      /* 
+       * Uncomment and complete the code below to submit more item metadata
+       * such as tags or categories
+       * See http://www.sugestio.com/documentation for information on 
+       * what data you can send and how it can be useful
+       */
+      // $sugestio_item->from = '';
+      // $sugestio_item->until = '';
+      // $sugestio_item->location_simple = '';
+      // $sugestio_item->location_latlong = '';
+      // $sugestio_item->tag = array();
+      // $sugestio_item->creator = array();
+      // $sugestio_item->category = array();      
+      $result = $client->addItem($sugestio_item);
+      return $result;
+
+      break;
+  }
+}
+
+/**
+ * Sends the vote operation triggered by the hook to
+ * the external Sugestio recommendation engine.
+ *
+ * This method should NOT be called directly. All hook events
+ * must pass through sugestio_hooks() to ensure correct cache
+ * behaviour.
+ *
+ * @param op
+ *   The operation linked with the hook.
+ *
+ * @param vote
+ *   The vote object that triggered
+ *   the hook.
+ */
+function sugestio_vote_execute($op, $vote) {
+  
+  switch ($op) {
+    case 'insert':
+      // don't break, run the 'update' case
+    case 'update':
+      $client = sugestio_get_client();
+      $res = 0;
+      
+      foreach ($vote as $v) {
+        $userid = sugestio_anonymize($v['uid']);
+        $itemid = sugestio_anonymize($v['content_id']);
+        $consumptionid = sugestio_anonymize($v['uid'] . '-' . $v['content_id']);
+
+        $consumption = new SugestioConsumption($userid, $itemid);
+        $consumption->id = $consumptionid;
+        $consumption->type = 'RATING';
+      
+        // normally, the user can submit a single rating for a node
+        // the default tag is simply 'vote', which we won't send to the service
+        // for multi axis voting, the vote tag indicates the rating aspect
+        // e.g., video, sound, mood, ... 
+        if ($v['tag'] != 'vote') {
+          $consumption->type .= ':' . $v['tag'];
+        }
+
+        if ($v['value_type'] == 'percent') {
+          $consumption->detail = 'PERCENTAGE:' . $v['value'];
+        } 
+        else {
+          /*
+           * Generic way of passing the ratings.
+           * Do try to map these on the Sugestio API
+           * This is just a fallback method
+           */
+          $consumption->detail = $v['value_type'] . ':' . $v['value'];
+        }
+
+        $consumption->date = $v['timestamp'];
+        $consumption->location_simple = '';
+        $consumption->location_latlong = '';
+
+        $res = $client->addConsumption($consumption);
+      
+        // if we failed to submit one of the votes, we return immediately and
+        // all votes are queued in the cron system for a new attempt later
+        if ($res != 202)
+          return $res;
+          
+      }      
+      
+      return $res;
+      break;
+  }
+}
+
+/**
+ * Implementation of hook_cron().
+ *
+ * When cron is run, the hook calls that were saved in DB
+ * will be sent to the external Sugestio recommendation engine.
+ */
+function sugestio_cron() {
+  //Reads call cache.
+  $result = db_query('SELECT * FROM {cron_sugestio_calls}');
+
+  foreach ($result as $call) {
+    //Unpacks the data stored in the call.
+    $arr = unserialize($call->data);
+    $op = $arr['op'];
+    $data = $arr['data'];
+    try {
+      //Executes the call.
+      if ($call->event == 'user') {
+        $res = sugestio_user_execute($op, $data);
+      }
+      elseif ($call->event == 'node') {
+        $res = sugestio_node_execute($op, $data);
+      }
+      elseif ($call->event == 'vote') {
+        $res = sugestio_vote_execute($op, $data);
+      }
+
+      //Deletes the call entry from DB if succesful.
+      if ($res == 202) {
+        db_delete('cron_sugestio_calls')
+          ->condition('cid', $call->cid)
+          ->execute();
+      }
+    }
+    catch (Exception $e) {
+      sugestio_error($e);
+    }
+  }
+}
+
+/**
+ * Transforms the given array of recommendations
+ * into a simple HTML styled bullet list.
+ *
+ * If clicktracking is enabled, javascript is added to the
+ * generated links.
+ * <ul>
+ *   <li>
+ *     <a ... onclick=clicktracking> recommended item </a>
+ *   </li>
+ * </ul>
+ *
+ * @param arr
+ *   The array of recommendations.
+ *
+ * @param type
+ *   The type of the recommendations. Can be 'RECOMMENDATION' for user recommendations
+ *   or 'SIMILAR' for similar item recommendations. This variable is passed
+ *   on to the external Sugestio recommendation engine through clicktracking.
+ */
+function sugestio_build_content($arr, $type) {
+  
+  $count = 0;
+  $max_items = variable_get('sugestio_number_recs', 5);
+  global $user ;
+
+  $clicktracking = (variable_get('sugestio_clicktracking', 1) == 1);
+
+  if ($clicktracking) {
+  // TODO
+  }
+
+  $data = array();
+  
+  foreach ($arr as $rec) {
+    if (is_array($rec)) {
+      if ($count >= $max_items) {
+        break;
+      }
+      $options = array();
+      // inserts onclick javascript if clicktracking is enabled
+      if ($clicktracking) {
+        // TODO
+      }
+      $data[] = l($rec['item']['title'], $rec['item']['permalink'], $options);      
+      $count++;
+    }
+  }
+  
+  if ($count == 0)
+    return "None";
+  else
+    return theme_item_list($data, NULL, 'UL');
+}
+
+/**
+ * Reports errors that are caught during execution.
+ */
+function sugestio_error($e) {  
+  watchdog('warning', t('Sugestio problem: @e', array('@e' => $e->getMessage())));
+}
+
+/**
+ * Anonymizes a value.
+ * @param string $value the value to be anonymized
+ * @return a salted hash of the value if anonymization is enabled, the original value itself if anonymization is disabled.
+ */
+function sugestio_anonymize($value) {
+  
+  if (variable_get('sugestio_anonymize', 1) == 1)
+    return md5(variable_get('sugestio_salt', 'tiU0t9uml5Ciunl') . $value);
+  else
+    return $value;
+  
+}
+
+/**
+ * Returns an instance of SugestioClient to interface with the Sugestio service
+ * @return SugestioClient
+ */
+function sugestio_get_client() {
+
+  $account = variable_get('sugestio_account', 'sandbox');
+  $secret = variable_get('sugestio_key', 'demo');
+  $url = variable_get('sugestio_url', 'http://api.sugestio.com');
+
+  //$client = new SugestioClient($account, $secret, $url);
+
+  return $client;
+}
+
+/**
+ * Implementation of hook_enable().
+ */
+function sugestio_enable() {
+
+}

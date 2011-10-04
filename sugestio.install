@@ -1,0 +1,108 @@
+<?php
+// $Id$
+/**
+ * @file
+ * Install, update and uninstall functions for the sugestio module.
+ */
+
+/**
+ * Implementation of hook_requirements
+ */
+function sugestio_requirements($phase) {
+  $requirements = array();
+  // Ensure translations do not break at install time
+  $t = get_t();
+  
+  $requirements['sugestio-php'] = array(
+      'title' => $t('Sugestio PHP library'),
+  );
+
+  $libraries = libraries_get_libraries();
+  if (isset($libraries['sugestio-php'])) {
+    $requirements['sugestio-php']['value'] = $t('Installed');
+    $requirements['sugestio-php']['severity'] = REQUIREMENT_OK;
+  }
+  else {
+    $requirements['sugestio-php']['value'] = $t('Not Installed');
+    $requirements['sugestio-php']['severity'] = REQUIREMENT_ERROR;
+    $requirements['sugestio-php']['description'] = $t('Please install the example library %url.', array('%url' => 'http://www.github.com/sugestio/sugestio-php'));
+  }
+  
+  return $requirements;
+}
+
+/**
+ * Implementation of hook_install().
+ */
+function sugestio_install() {
+  
+}
+
+/**
+ * Implementation of hook_uninstall().
+ */
+function sugestio_uninstall() {
+  variable_del('sugestio_account');
+  variable_del('sugestio_key');
+  variable_del('sugestio_url');
+  variable_del('sugestio_number_recs');
+  variable_del('sugestio_expire');
+  variable_del('sugestio_rec_cache');
+  variable_del('sugestio_realtime_hook');
+  variable_del('sugestio_clicktracking');
+  variable_del('sugestio_anonymize');
+  variable_del('sugestio_salt');    
+}
+
+/**
+ * Implementation of hook_schema().
+ */
+function sugestio_schema() {
+  $schema = array();
+  
+  $schema['cron_sugestio_calls'] = sugestio_get_calls_structure();
+  
+  //Recommendations cache.
+  $schema['cache_sugestio'] = drupal_get_schema_unprocessed('system', 'cache');
+  
+  return $schema;
+}
+
+/**
+ * Returns the database structure for the storage
+ * of the hook events that should be cached and executed
+ * when cron is run.
+ */
+function sugestio_get_calls_structure() {
+//Hook calls to external Sugestio recommendation engine cache.
+$calls = array(
+  'fields' => array(
+    'cid' => array(
+    'type' => 'serial',
+    'unsigned' => TRUE,
+    'not null' => TRUE),
+    'data' => array(
+    'type' => 'blob',
+    'serialize' => TRUE,
+    'not null' => TRUE),
+    'event' => array(
+    'type' => 'text',
+    'not null' => TRUE),
+  ),
+    'primary key' => array('cid'),
+    'indexes' => array(
+    'event' => array(array('event', 5)), ),
+  );
+  return $calls;
+}
+
+/**
+ * Implementation of hook_flush_caches().
+ *
+ * This tells Drupal's cache handling system the name of our caching
+ * table, so expired items will be purged automatically and this table
+ * also affected by the empty all caches function.
+ */
+function sugestio_flush_caches() {
+  return array('cache_sugestio');
+}
