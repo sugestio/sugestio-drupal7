@@ -53,6 +53,7 @@ for communicating with the webservice. See INSTALL.txt for detailed instructions
 # License
 
 Reference implementation of a Drupal 7 module for the Sugestio recommendation service
+
 Copyright (C) 2011 Sugestio.com
 
 This program is free software; you can redistribute it and/or

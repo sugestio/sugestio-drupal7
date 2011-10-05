@@ -18,8 +18,8 @@ function sugestio_menu() {
   $items = array();
 
   $items['admin/config/search/sugestio'] = array(
-      'title' => t('Sugestio settings'),
-      'description' => t('Configure the Sugestio Recommender system settings.'),
+      'title' => 'Sugestio settings',
+      'description' => 'Configure the Sugestio Recommender system settings.',
       'page callback' => 'drupal_get_form',
       'page arguments' => array('sugestio_admin_settings'),
       'access arguments' => array('administer sugestio'),
@@ -455,11 +455,11 @@ function sugestio_user_execute($op, $account) {
        */    
     
       // $client = sugestio_get_client();
-      // $u = new SugestioUser(sugestio_anonymize($account->uid));    
+      // $u = new SugestioUser(sugestio_anonymize($account->uid));
       // $u->location_latlong = '';
       // $u->gender = '';
       // $u->birthday = '';
-      // return $client->addUser($u);    
+      // return $client->addUser($u);
 
       break;
   }
@@ -482,18 +482,18 @@ function sugestio_user_execute($op, $account) {
 function sugestio_node_execute($op, $node) {
   switch ($op) {
     case 'insert':
-    case 'update':      
+    case 'update':
       
-      $client = sugestio_get_client();      
-      $sugestio_item = new SugestioItem(sugestio_anonymize($node->nid));      
+      $client = sugestio_get_client();
+      $sugestio_item = new SugestioItem(sugestio_anonymize($node->nid));
 
       // submitting a title and permalink avoids additional node_load operations 
-      // when visualizing recommendations       
-      $sugestio_item->title = $node->title;      
+      // when visualizing recommendations
+      $sugestio_item->title = $node->title;
       // use the alias as the permalink if one is set
-      if (!empty($node->path))
-        $path = $node->path;
-      else
+      //if (!empty($node->path))
+      //  $path = $node->path;
+      //else
         $path = 'node/' . $node->nid;
       
       $sugestio_item->permalink = url($path, array('absolute' => TRUE));
@@ -510,7 +510,7 @@ function sugestio_node_execute($op, $node) {
       // $sugestio_item->location_latlong = '';
       // $sugestio_item->tag = array();
       // $sugestio_item->creator = array();
-      // $sugestio_item->category = array();      
+      // $sugestio_item->category = array();
       $result = $client->addItem($sugestio_item);
       return $result;
 
@@ -688,7 +688,7 @@ function sugestio_build_content($arr, $type) {
  * Reports errors that are caught during execution.
  */
 function sugestio_error($e) {  
-  watchdog('warning', t('Sugestio problem: @e', array('@e' => $e->getMessage())));
+  watchdog('warning', 'Sugestio problem: @e', array('@e' => $e->getMessage()));
 }
 
 /**
@@ -711,11 +711,16 @@ function sugestio_anonymize($value) {
  */
 function sugestio_get_client() {
 
+  include_once(libraries_get_path('sugestio-php') . '/SugestioClient.php');
+  include_once(libraries_get_path('sugestio-php') . '/SugestioItem.php');
+  include_once(libraries_get_path('sugestio-php') . '/SugestioUser.php');
+  include_once(libraries_get_path('sugestio-php') . '/SugestioConsumption.php');
+
   $account = variable_get('sugestio_account', 'sandbox');
   $secret = variable_get('sugestio_key', 'demo');
   $url = variable_get('sugestio_url', 'http://api.sugestio.com');
 
-  //$client = new SugestioClient($account, $secret, $url);
+  $client = new SugestioClient($account, $secret, $url);
 
   return $client;
 }

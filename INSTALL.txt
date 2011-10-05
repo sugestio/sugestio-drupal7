@@ -13,7 +13,7 @@
 
 -- INSTALLATION --
 
-* Begin by ensuring the Libraries API is installed and enabled
+* Begin by ensuring the Libraries and Fivestar modules are installed and enabled
 
 * Upload the Sugestio PHP library to [/sites/all]/libraries/sugestio-php
 
@@ -30,17 +30,14 @@
                            |- sugestio.info
                            |- sugestio.install
                            |- sugestio.module
-                           |- tracking.js
                            |- ...
                            
 * The Sugestio PHP library has a Settings.php. You do not have to edit this file, 
 everything can be configured through Drupal's administration system.
 
-* Go to Administer > Site building > Modules and enable the Sugestio module
+* Go to Modules and enable the Sugestio module
 
-* Run Drupal's update.php
-
-* Go to Administer > Site configuration > Sugestio settings and make any changes
+* Go to Configuration > Search and metadata > Sugestio settings and make any changes
 
 * By default, the Sugestio module is configured to use the Sandbox account credentials 
 and will work out of the box. If you use the fivestar voting system on your website, 
