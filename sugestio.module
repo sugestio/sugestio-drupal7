@@ -310,7 +310,7 @@ function sugestio_fetch_data($id, $category) {
               }
             }
               
-            if ($add) {            
+            if ($add) {
               $data[] = $rec;
               $count++;
             }
@@ -670,10 +670,19 @@ function sugestio_build_content($arr, $type) {
     }
   }
   
-  if ($count == 0)
+  if ($count == 0) {
     return "None";
-  else
-    return theme_item_list($data, NULL, 'UL');
+  } else
+  {
+    $variables = array(
+      'items' => $data,
+      'type' => 'ul',
+      'title' => NULL,
+      'attributes' => array(),
+    );
+    
+    return theme_item_list($variables);
+  }
 }
 
 /**
