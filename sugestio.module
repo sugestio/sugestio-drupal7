@@ -497,23 +497,15 @@ function sugestio_node_execute($op, $node) {
         $path = 'node/' . $node->nid;
       
       $sugestio_item->permalink = url($path, array('absolute' => TRUE));
-
-      /* 
-       * Uncomment and complete the code below to submit more item metadata
-       * such as tags or categories
-       * See http://www.sugestio.com/documentation for information on 
-       * what data you can send and how it can be useful
-       */
-      // $sugestio_item->from = '';
-      // $sugestio_item->until = '';
-      // $sugestio_item->location_simple = '';
-      // $sugestio_item->location_latlong = '';
-      // $sugestio_item->tag = array();
-      // $sugestio_item->creator = array();
-      // $sugestio_item->category = array();
+      
+      if (isset($node->field_tags)) {
+         foreach ($node->field_tags[$node->language] as $tag) {
+           $sugestio_item->tag[] = $tag['tid'];
+         }
+      }
+      
       $result = $client->addItem($sugestio_item);
       return $result;
-
       break;
   }
 }
