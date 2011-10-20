@@ -672,8 +672,8 @@ function sugestio_build_content($arr, $type) {
   
   if ($count == 0) {
     return "None";
-  } else
-  {
+  }
+  else {
     $variables = array(
       'items' => $data,
       'type' => 'ul',
